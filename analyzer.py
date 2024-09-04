@@ -2,11 +2,9 @@ import openai
 import os
 from dotenv import load_dotenv
 from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Preformatted, PageBreak, Frame, PageTemplate
-from reportlab.lib.utils import ImageReader
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, ListFlowable, ListItem
 
 load_dotenv()
 
@@ -36,114 +34,65 @@ def analisar_codigo(caminho_arquivo):
 
     return response['choices'][0]['message']['content']
 
-def gerar_relatorio_com_logo(analise, codigo, caminho_relatorio, logo_path):
-    doc = SimpleDocTemplate(caminho_relatorio, pagesize=A4)
-
-    styles = getSampleStyleSheet()
+def gerar_relatorio_pdf(caminho_arquivo, output_pdf):
+    resultado_analise = analisar_codigo(caminho_arquivo)
     
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Title'],
-        fontSize=28,
-        textColor=colors.HexColor("#90fff9"),
-        spaceAfter=14,
-        alignment=1, 
-    )
-
-    company_style = ParagraphStyle(
-        'CompanyStyle',
-        parent=styles['Heading1'],
-        fontSize=22,
-        textColor=colors.HexColor("#0066CC"), 
-        spaceAfter=12,
-        alignment=1, 
-    )
-
-    date_style = ParagraphStyle(
-        'DateStyle',
-        parent=styles['Normal'],
-        fontSize=12,
-        textColor=colors.HexColor("#333333"),
-        alignment=1, 
-    )
-
-    def add_background(canvas, doc):
-        canvas.saveState()
-        canvas.setFillColor(colors.HexColor("#b2b7b6")) 
-        canvas.rect(0, 0, A4[0], A4[1], stroke=0, fill=1)
-        canvas.restoreState()
-
+    doc = SimpleDocTemplate(output_pdf, pagesize=A4)
+    styles = getSampleStyleSheet()
     story = []
 
-    story.append(Spacer(1, 2 * inch))
+    logo_path = "assets/logo.png"
+    title = "SecCode Analyzer"
 
-    logo = Image(logo_path)
-    logo.drawHeight = 1.8 * inch
-    logo.drawWidth = 1.8 * inch
-    logo.hAlign = 'CENTER'
-    story.append(logo)
+    if os.path.exists(logo_path):
+        img = Image(logo_path, width=100, height=100)
+        img.hAlign = 'CENTER'
+        story.append(img)
+
+    title_style = styles['Title']
+    title_style.alignment = TA_CENTER
+    story.append(Paragraph(title, title_style))
+    story.append(Spacer(1, 24))
+
+    analysis_title = "Analysis Results"
+    analysis_title_style = styles['Heading1']
+    story.append(Paragraph(analysis_title, analysis_title_style))
+    story.append(Spacer(1, 12))
+
+    sections = resultado_analise.split("\n\n")
+    section_styles = {
+        "Title": styles['Heading2'],
+        "Subtitle": styles['Heading3'],
+        "Content": styles['BodyText']
+    }
     
-    story.append(Spacer(1, 0.5 * inch))
-    story.append(Paragraph("Relatório de Análise de Segurança", title_style))
-    story.append(Spacer(1, 0.5 * inch))
-    story.append(Paragraph("SecCode Analyzer", company_style))
-    
-    story.append(Spacer(1, 6 * inch))
-    story.append(Paragraph("Data: 2024-08-30", date_style))
-    story.append(PageBreak())
+    for section in sections:
+        if ":" in section:
+            section_title, section_content = section.split(":", 1)
+            story.append(Paragraph(section_title.strip(), section_styles["Title"]))
+            story.append(Spacer(1, 6))
 
-    story.append(Paragraph("Introdução", title_style))
-    story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph("Este relatório fornece uma análise de segurança detalhada do código fornecido, identificando vulnerabilidades potenciais e sugerindo melhorias.", styles['BodyText']))
-    story.append(Spacer(1, 0.3 * inch))
-
-    story.append(Paragraph("Código Analisado", title_style))
-    story.append(Spacer(1, 0.2 * inch))
-    story.append(Preformatted(codigo, style=styles['Code']))
-    story.append(PageBreak())
-
-    story.append(Paragraph("Análise de Segurança", title_style))
-    story.append(Spacer(1, 0.2 * inch))
-    analise_formatada = analise.split('\n\n')
-    
-    for paragrafo in analise_formatada:
-        if paragrafo.strip().startswith('Linha'):
-            story.append(Paragraph(paragrafo, styles['BodyText']))
-            story.append(Spacer(1, 0.2 * inch))
-        elif paragrafo.strip().startswith('Sugestão:'):
-            story.append(Paragraph("Sugestão de Melhoria", styles['Heading2']))
-            story.append(Spacer(1, 0.1 * inch))
-            story.append(Preformatted(paragrafo.replace("Sugestão:", "").strip(), style=styles['Code']))
-            story.append(Spacer(1, 0.3 * inch))
+            if "\n" in section_content.strip():
+                items = section_content.strip().split("\n")
+                list_items = [ListItem(Paragraph(item.strip(), section_styles["Content"])) for item in items]
+                story.append(ListFlowable(list_items, bulletType='bullet'))
+            else:
+                story.append(Paragraph(section_content.strip(), section_styles["Content"]))
+            
+            story.append(Spacer(1, 12))
         else:
-            story.append(Preformatted(paragrafo, style=styles['Code']))
-            story.append(Spacer(1, 0.3 * inch))
-
-    story.append(PageBreak())
-    story.append(Paragraph("Conclusão", title_style))
-    story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph("A análise revelou várias áreas que podem ser melhoradas para garantir a segurança do código. As sugestões fornecidas devem ser implementadas para mitigar os riscos identificados.", styles['BodyText']))
-    
-    frame = Frame(
-        doc.leftMargin, doc.bottomMargin,
-        doc.width, doc.height,
-        id='normal'
-    )
-
-    template = PageTemplate(id='template_com_frame', frames=[frame], onPage=add_background)
-
-    doc.addPageTemplates([template])
+            story.append(Paragraph(section.strip(), section_styles["Content"]))
+            story.append(Spacer(1, 12))
 
     doc.build(story)
 
+
 if __name__ == "__main__":
     caminho_arquivo = "sample.py"
-    caminho_relatorio = "relatorio_seguranca_com_logo_e_fundo_estilizado.pdf"
-    logo_path = "assets/SecCode.webp"  
-    
+    output_pdf = "relatorio_sec_code_analyzer.pdf"
+
     codigo = open(caminho_arquivo).read()
     analise = analisar_codigo(caminho_arquivo)
     
-    gerar_relatorio_com_logo(analise, codigo, caminho_relatorio, logo_path)
+    gerar_relatorio_pdf(caminho_arquivo, output_pdf)
     
-    print(f"Relatório gerado com sucesso: {caminho_relatorio}")
