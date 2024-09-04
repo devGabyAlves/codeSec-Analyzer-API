@@ -4,38 +4,41 @@ from dotenv import load_dotenv
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, ListFlowable, ListItem
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 
 load_dotenv()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def analisar_codigo(caminho_arquivo):
-    with open(caminho_arquivo, 'r') as file:
-        codigo = file.read()
+def analyze_code(file_path):
+    with open(file_path, 'r') as file:
+        code = file.read()
     
-    prompt = f"""Você é um especialista em segurança de software. Vou te fornecer um trecho de código, e você deve identificar possíveis vulnerabilidades de segurança e sugerir melhorias que podem ser implementadas. 
-    Aqui está o código:
+    prompt = f"""You are a software security expert. I will provide you with a code snippet, and you must identify possible security vulnerabilities and suggest improvements that can be implemented. 
+    Additionally, for each identified vulnerability, assign a severity level according to OWASP guidelines: low, medium, high, or critical. Whenever possible, provide corrected code examples for each identified vulnerability.
+    
+    Here is the code:
 
-    {codigo}
+    {code}
 
-    Por favor, forneça uma análise detalhada dos problemas de segurança, das possíveis melhorias, e exemplos de como implementar essas melhorias no código em questão:
+    Please provide a detailed analysis of the security issues, assign a severity level to each problem, and suggest improvements, including examples of how to implement these improvements in the code:
     """
     
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",  
         messages=[
-            {"role": "system", "content": "Você é um especialista em segurança de software."},
+            {"role": "system", "content": "You are a software security expert."},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=2000,  
+        max_tokens=4000,  
         temperature=0.5,
     )
 
     return response['choices'][0]['message']['content']
 
-def gerar_relatorio_pdf(caminho_arquivo, output_pdf):
-    resultado_analise = analisar_codigo(caminho_arquivo)
+
+def generate_pdf_report(file_path, output_pdf):
+    analysis_result = analyze_code(file_path)
     
     doc = SimpleDocTemplate(output_pdf, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -59,25 +62,30 @@ def gerar_relatorio_pdf(caminho_arquivo, output_pdf):
     story.append(Paragraph(analysis_title, analysis_title_style))
     story.append(Spacer(1, 12))
 
-    sections = resultado_analise.split("\n\n")
+    sections = analysis_result.split("\n\n")
     section_styles = {
         "Title": styles['Heading2'],
         "Subtitle": styles['Heading3'],
         "Content": styles['BodyText']
     }
-    
+
     for section in sections:
         if ":" in section:
             section_title, section_content = section.split(":", 1)
             story.append(Paragraph(section_title.strip(), section_styles["Title"]))
             story.append(Spacer(1, 6))
 
-            if "\n" in section_content.strip():
-                items = section_content.strip().split("\n")
-                list_items = [ListItem(Paragraph(item.strip(), section_styles["Content"])) for item in items]
-                story.append(ListFlowable(list_items, bulletType='bullet'))
+            if "Severity" in section_title:  
+                severity_text = f"<b>Severity:</b> {section_content.strip()}"
+                story.append(Paragraph(severity_text, section_styles["Content"]))
             else:
-                story.append(Paragraph(section_content.strip(), section_styles["Content"]))
+                if "\n" in section_content.strip():
+                    items = section_content.strip().split("\n")
+                    for item in items:
+                        story.append(Paragraph(item.strip(), section_styles["Content"]))
+                        story.append(Spacer(1, 6))  
+                else:
+                    story.append(Paragraph(section_content.strip(), section_styles["Content"]))
             
             story.append(Spacer(1, 12))
         else:
@@ -88,11 +96,7 @@ def gerar_relatorio_pdf(caminho_arquivo, output_pdf):
 
 
 if __name__ == "__main__":
-    caminho_arquivo = "sample.py"
-    output_pdf = "relatorio_sec_code_analyzer.pdf"
+    file_path = "sample.py"
+    output_pdf = "sec_code_analyzer_report.pdf"
 
-    codigo = open(caminho_arquivo).read()
-    analise = analisar_codigo(caminho_arquivo)
-    
-    gerar_relatorio_pdf(caminho_arquivo, output_pdf)
-    
+    generate_pdf_report(file_path, output_pdf)
